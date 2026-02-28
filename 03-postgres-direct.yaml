@@ -1,0 +1,168 @@
+---
+# =============================================================================
+# PostgreSQL Direct Deployment — pinned to Power (ppc64le) node
+#
+# Uses registry.redhat.io/rhel9/postgresql-16 which is a multi-arch image
+# supporting both amd64 and ppc64le.
+#
+# Replaces Crunchy PGO (which is amd64-only) for the Power node deployment.
+#
+# Placement: pinned to Power (ppc64le) node via nodeAffinity
+#            workload-type=database label (set by 01-node-labels-taints.sh)
+# =============================================================================
+
+# Secret for PostgreSQL credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hetero-postgres-secret
+  namespace: hetero-demo
+  labels:
+    app: postgres
+    tier: database
+    arch: ppc64le
+    app.kubernetes.io/part-of: hetero-hcp-demo
+type: Opaque
+stringData:
+  POSTGRESQL_USER: appuser
+  POSTGRESQL_PASSWORD: hetero-demo-pass-2024
+  POSTGRESQL_DATABASE: appdb
+  # URI format compatible with the Flask app (same key name as Crunchy PGO secret)
+  uri: "postgresql://appuser:hetero-demo-pass-2024@hetero-postgres-service.hetero-demo.svc.cluster.local:5432/appdb"
+
+---
+# PersistentVolumeClaim for PostgreSQL data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hetero-postgres-pvc
+  namespace: hetero-demo
+  labels:
+    app: postgres
+    tier: database
+    arch: ppc64le
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# PostgreSQL Deployment — pinned to Power (ppc64le) node
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hetero-postgres
+  namespace: hetero-demo
+  labels:
+    app: postgres
+    tier: database
+    arch: ppc64le
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: postgres
+        tier: database
+        arch: ppc64le
+    spec:
+      # -----------------------------------------------------------------------
+      # Hard node affinity: MUST run on ppc64le (IBM Power) node
+      # -----------------------------------------------------------------------
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - database
+      containers:
+        - name: postgres
+          # registry.redhat.io/rhel9/postgresql-16 is multi-arch (amd64 + ppc64le)
+          # No docker.io credentials required.
+          image: registry.redhat.io/rhel9/postgresql-16:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-postgres-secret
+                  key: POSTGRESQL_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-postgres-secret
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-postgres-secret
+                  key: POSTGRESQL_DATABASE
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/pgsql/data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+                - --live
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: hetero-postgres-pvc
+
+---
+# Service for PostgreSQL — accessible as hetero-postgres-service:5432
+apiVersion: v1
+kind: Service
+metadata:
+  name: hetero-postgres-service
+  namespace: hetero-demo
+  labels:
+    app: postgres
+    tier: database
+    arch: ppc64le
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP

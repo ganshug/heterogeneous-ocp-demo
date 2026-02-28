@@ -1,18 +1,18 @@
 ---
 # =============================================================================
-# Flask App Server Deployment — pinned to Power (ppc64le) node
+# Flask App Server Deployment — pinned to Intel (amd64) node
 #
 # Placement strategy:
-#   nodeAffinity: requiredDuringScheduling — MUST run on ppc64le (IBM Power)
+#   nodeAffinity: requiredDuringScheduling — MUST run on amd64 (Intel)
 #                 workload-type=appserver  (set by 01-node-labels-taints.sh)
 #
 # Image: built by OCP S2I BuildConfig (04-appserver-build.yaml)
 #        stored in internal ImageStream: hetero-demo-app:latest
 #        NO docker.io images required.
 #
-# Database: Crunchy Postgres Operator cluster (03-postgres-cluster.yaml)
-#   Primary service: hetero-pgcluster-primary.hetero-demo.svc.cluster.local:5432
-#   Credentials:     Secret hetero-pgcluster-pguser-appuser (created by operator)
+# Database: Direct PostgreSQL deployment (03-postgres-direct.yaml) on Power (ppc64le)
+#   Primary service: hetero-postgres-service.hetero-demo.svc.cluster.local:5432
+#   Credentials:     Secret hetero-postgres-secret
 # =============================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -22,7 +22,7 @@ metadata:
   labels:
     app: flask-appserver
     tier: appserver
-    arch: ppc64le
+    arch: amd64
     app.kubernetes.io/part-of: hetero-hcp-demo
 spec:
   replicas: 1
@@ -39,10 +39,10 @@ spec:
       labels:
         app: flask-appserver
         tier: appserver
-        arch: ppc64le
+        arch: amd64
     spec:
       # -----------------------------------------------------------------------
-      # Hard node affinity: MUST run on ppc64le (IBM Power) node
+      # Hard node affinity: MUST run on amd64 (Intel) node
       # -----------------------------------------------------------------------
       affinity:
         nodeAffinity:
@@ -52,7 +52,7 @@ spec:
                   - key: kubernetes.io/arch
                     operator: In
                     values:
-                      - ppc64le
+                      - amd64
                   - key: workload-type
                     operator: In
                     values:
@@ -67,21 +67,20 @@ spec:
       #     effect: NoSchedule
       # -----------------------------------------------------------------------
       initContainers:
-        # Wait for the Crunchy Postgres primary service to be ready.
-        # Uses the OCP internal cli image (registry.redhat.io/openshift4/ose-cli)
-        # — already mirrored in the internal OCP registry. No docker.io needed.
+        # Wait for the PostgreSQL service to be ready.
+        # Uses the OCP internal cli image — already mirrored in the internal OCP registry.
         - name: wait-for-postgres
           image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
           command:
             - bash
             - -c
             - |
-              echo "Waiting for hetero-pgcluster-primary:5432 to be ready..."
-              until bash -c "echo > /dev/tcp/hetero-pgcluster-primary/5432" 2>/dev/null; do
-                echo "Postgres primary not ready yet, sleeping 5s..."
+              echo "Waiting for hetero-postgres-service:5432 to be ready..."
+              until bash -c "echo > /dev/tcp/hetero-postgres-service/5432" 2>/dev/null; do
+                echo "Postgres not ready yet, sleeping 5s..."
                 sleep 5
               done
-              echo "Postgres primary is ready!"
+              echo "Postgres is ready!"
       containers:
         - name: flask-appserver
           # Image built by OCP S2I BuildConfig (04-appserver-build.yaml)
@@ -92,38 +91,11 @@ spec:
             - containerPort: 8080
               name: http
           env:
-            # DATABASE_URL constructed from the Crunchy operator's user secret.
-            # The operator creates Secret: hetero-pgcluster-pguser-appuser
-            # with keys: user, password, host, port, dbname, uri
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
-                  key: user
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
-                  key: password
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
-                  key: port
-            - name: PG_DBNAME
-              valueFrom:
-                secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
-                  key: dbname
+            # DATABASE_URL from the direct postgres secret (hetero-postgres-secret)
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: hetero-pgcluster-pguser-appuser
+                  name: hetero-postgres-secret
                   key: uri
             # Expose node and pod name inside the app for the /arch endpoint
             - name: NODE_NAME
