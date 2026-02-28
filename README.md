@@ -1,6 +1,17 @@
 # IBM Power and IBM Fusion HCI Demo — Heterogeneous OCP Hosted Control Plane
 
-This solution demonstrates a **true heterogeneous workload deployment** on an OpenShift Hosted Control Plane (HCP) cluster with mixed-architecture worker nodes — Intel (x86_64) and IBM Power (ppc64le) — running on **IBM Fusion HCI**.
+This repository demonstrates **true heterogeneous workload deployments** on an OpenShift Hosted Control Plane (HCP) cluster with mixed-architecture worker nodes — Intel (x86_64) and IBM Power (ppc64le) — running on **IBM Fusion HCI**.
+
+Two demos are available:
+
+| Demo | Database | App | Repo |
+|------|----------|-----|------|
+| **[hetero-hcp-demo](#demo-1-postgresql-16-on-ibm-power--flask-on-intel)** | PostgreSQL 16 on IBM Power (ppc64le) | Flask inventory app on Intel (x86_64) | This repo |
+| **[hetero-db2-demo](https://github.com/ganshug/heterogeneous-ecommerce-demo)** | IBM Db2 CE on IBM Power (ppc64le) | Flask e-commerce shopping cart on Intel (x86_64) | [heterogeneous-ecommerce-demo](https://github.com/ganshug/heterogeneous-ecommerce-demo) |
+
+---
+
+## Demo 1: PostgreSQL 16 on IBM Power + Flask on Intel
 
 **No docker.io images are used.** All images come from:
 - Red Hat registry (`registry.redhat.io`)
@@ -15,7 +26,7 @@ The Flask app server (running on Intel) connects **cross-architecture** to Postg
 
 ---
 
-## Architecture Diagram
+### Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -45,7 +56,7 @@ The Flask app server (running on Intel) connects **cross-architecture** to Postg
 
 ---
 
-## Image Sources (No docker.io)
+### Image Sources (No docker.io)
 
 | Component | Image | Source |
 |-----------|-------|--------|
@@ -57,14 +68,17 @@ The Flask app server (running on Intel) connects **cross-architecture** to Postg
 
 ---
 
-## File Structure
+### File Structure
 
 ```
-hetero-hcp-demo/
+heterogeneous-ocp-demo/          ← repo root
 ├── README.md                        # This file
 ├── deploy.sh                        # One-shot deployment script
+├── .gitignore
 ├── 00-namespace.yaml                # Namespace: hetero-demo
 ├── 01-node-labels-taints.sh         # Label Intel (appserver) and Power (database) nodes
+├── 02-postgres-operator.yaml        # PostgreSQL operator (optional operator-based install)
+├── 03-postgres-cluster.yaml         # PostgreSQL cluster CR (operator-based)
 ├── 03-postgres-direct.yaml          # PostgreSQL 16 Deployment → IBM Power (ppc64le) node
 ├── 04-appserver-build.yaml          # OCP S2I BuildConfig + ImageStream (amd64 build)
 ├── 06-appserver-deployment.yaml     # Flask App Server → Intel (x86_64) node
@@ -79,7 +93,7 @@ hetero-hcp-demo/
 
 ---
 
-## Prerequisites
+### Prerequisites
 
 - OpenShift HCP guest cluster (on IBM Fusion HCI or any OCP cluster) with:
   - At least **1 Intel (x86_64)** worker node
@@ -90,12 +104,12 @@ hetero-hcp-demo/
 
 ---
 
-## Quick Start — One-Shot Deployment
+### Quick Start — One-Shot Deployment
 
 ```bash
 # Clone the repo
 git clone https://github.com/ganshug/heterogeneous-ocp-demo.git
-cd heterogeneous-ocp-demo/hetero-hcp-demo
+cd heterogeneous-ocp-demo
 
 # Log in to your OCP HCP cluster
 oc login <api-url> --token=<token>
@@ -110,9 +124,9 @@ bash deploy.sh
 
 ---
 
-## Step-by-Step Deployment
+### Step-by-Step Deployment
 
-### Step 1 — Label the nodes
+#### Step 1 — Label the nodes
 
 Find your node names:
 ```bash
@@ -141,7 +155,7 @@ oc get nodes --show-labels | grep workload-type
 
 ---
 
-### Step 2 — Create namespace
+#### Step 2 — Create namespace
 
 ```bash
 oc apply -f 00-namespace.yaml
@@ -149,7 +163,7 @@ oc apply -f 00-namespace.yaml
 
 ---
 
-### Step 3 — Deploy PostgreSQL 16 on IBM Power node
+#### Step 3 — Deploy PostgreSQL 16 on IBM Power node
 
 ```bash
 oc apply -f 03-postgres-direct.yaml
@@ -166,7 +180,7 @@ This creates:
 
 ---
 
-### Step 4 — Build the Flask App Server (S2I on Intel node)
+#### Step 4 — Build the Flask App Server (S2I on Intel node)
 
 The build runs **on the Intel (amd64) node** using the Red Hat UBI9 Python 3.11 image.
 The resulting image is **amd64** and stored in the internal OCP registry.
@@ -193,7 +207,7 @@ oc rollout status deployment/flask-appserver -n hetero-demo
 
 ---
 
-### Step 5 — Deploy Flask App Server on Intel node
+#### Step 5 — Deploy Flask App Server on Intel node
 
 ```bash
 oc apply -f 06-appserver-deployment.yaml
@@ -206,7 +220,7 @@ oc rollout status deployment/flask-appserver -n hetero-demo
 
 ---
 
-### Step 6 — Verify deployment
+#### Step 6 — Verify deployment
 
 ```bash
 # Check pod placement
@@ -233,7 +247,7 @@ oc exec -n hetero-demo deploy/flask-appserver -- uname -m
 
 ---
 
-### Step 7 — Test the application
+#### Step 7 — Test the application
 
 Get the Route URL:
 ```bash
@@ -300,7 +314,7 @@ Expected `/arch` response:
 
 ---
 
-## Local Development (without OCP)
+### Local Development (without OCP)
 
 You can run the Flask app locally against a local PostgreSQL instance:
 
@@ -323,16 +337,16 @@ python app.py
 
 ---
 
-## How Workload Placement Works
+### How Workload Placement Works
 
-### Node Labels (set by `01-node-labels-taints.sh`)
+#### Node Labels (set by `01-node-labels-taints.sh`)
 
 | Node | Architecture | `workload-type` label | Workload |
 |------|-------------|----------------------|----------|
 | Intel worker | `x86_64` / `amd64` | `appserver` | Flask App Server |
 | Power worker | `ppc64le` | `database` | PostgreSQL 16 |
 
-### Node Affinity (Hard Placement)
+#### Node Affinity (Hard Placement)
 
 **PostgreSQL → IBM Power node:**
 ```yaml
@@ -372,7 +386,7 @@ nodeSelector:
 
 ---
 
-## API Reference
+### API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -388,7 +402,7 @@ nodeSelector:
 
 ---
 
-## Cleanup
+### Cleanup
 
 ```bash
 oc delete namespace hetero-demo
@@ -396,13 +410,76 @@ oc delete namespace hetero-demo
 
 ---
 
-## Key Takeaways
+## Demo 2: IBM Db2 on IBM Power + Flask E-Cart on Intel
 
-1. **No docker.io credentials needed** — all images from Red Hat registries or internal OCP registry
-2. **`registry.redhat.io/rhel9/postgresql-16`** is a multi-arch image — runs natively on both amd64 and ppc64le
-3. **OCP S2I BuildConfig** with `nodeSelector: kubernetes.io/arch: amd64` builds the Flask image natively on the Intel node — the resulting image is amd64
-4. **`kubernetes.io/arch`** label is auto-applied by OCP — use it for architecture-based scheduling
-5. **Node affinity** with `requiredDuringScheduling` enforces hard placement — pods will not start if no matching node exists
-6. **ClusterIP DNS** works transparently across architectures — `hetero-postgres-service.hetero-demo.svc.cluster.local` resolves correctly from the Intel node
-7. **Custom labels** (`workload-type`) give fine-grained control beyond just architecture
-8. **Cross-arch verified**: `PostgreSQL 16.x on powerpc64le-redhat-linux-gnu` connected from Intel (x86_64) app server
+> **Repo:** [ganshug/heterogeneous-ecommerce-demo](https://github.com/ganshug/heterogeneous-ecommerce-demo)
+
+This demo showcases an IBM Power E-Cart application — a full e-commerce shopping cart — where the Flask app server runs on Intel (x86_64) and IBM Db2 Community Edition runs on IBM Power (ppc64le).
+
+| Component | Architecture | Node Type | Workload | Image Source |
+|-----------|-------------|-----------|----------|--------------|
+| **E-Cart App Server** | `x86_64` | Intel | Flask e-commerce shopping cart | OCP internal registry (S2I build on amd64) |
+| **IBM Db2 CE** | `ppc64le` | IBM Power | Data persistence (products, cart, orders) | `cp.icr.io/cp/db2/db2u:latest` |
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│               OpenShift Hosted Control Plane (HCP)                   │
+│                     Namespace: db2-shop-demo                          │
+│                                                                       │
+│  ┌──────────────────────────────┐   ┌──────────────────────────┐    │
+│  │   Intel Worker Node          │   │   IBM Power Worker Node  │    │
+│  │   (x86_64 / amd64)           │   │   (ppc64le)              │    │
+│  │                              │   │                          │    │
+│  │  ┌──────────────────────┐   │   │  ┌────────────────────┐  │    │
+│  │  │  IBM Power E-Cart    │   │   │  │  IBM Db2 CE        │  │    │
+│  │  │  Flask / Python      │───┼───┼─▶│  cp.icr.io/db2u   │  │    │
+│  │  │  Port: 8080          │   │   │  │  Port: 50000       │  │    │
+│  │  │  (S2I / UBI9 amd64)  │   │   │  │  (ppc64le native)  │  │    │
+│  │  └──────────────────────┘   │   │  └────────────────────┘  │    │
+│  │         │                   │   │                          │    │
+│  │  shop-cart-service           │   │  db2-service              │    │
+│  └──────────────────────────────┘   └──────────────────────────┘    │
+│         │                                                             │
+│  OCP Route (TLS edge)                                                │
+└─────────┼─────────────────────────────────────────────────────────── ┘
+          │
+    External Users
+    https://shop-cart-route-db2-shop-demo.<apps-domain>
+```
+
+### Quick Start
+
+```bash
+# Clone the e-commerce demo repo
+git clone https://github.com/ganshug/heterogeneous-ecommerce-demo.git
+cd heterogeneous-ecommerce-demo
+
+# Log in to your OCP HCP cluster
+oc login <api-url> --token=<token>
+
+# Label your nodes
+vi 01-node-labels-taints.sh
+bash 01-node-labels-taints.sh
+
+# Deploy (requires IBM Entitlement Key for cp.icr.io)
+bash deploy.sh
+```
+
+> **Prerequisites:** IBM Entitlement Key must be configured in the OCP global pull secret to pull IBM Db2 from `cp.icr.io`.
+
+See the full README at: [heterogeneous-ecommerce-demo/README.md](https://github.com/ganshug/heterogeneous-ecommerce-demo/blob/main/README.md)
+
+---
+
+## Key Takeaways (Both Demos)
+
+1. **`kubernetes.io/arch`** label is auto-applied by OCP — use it for architecture-based scheduling
+2. **Node affinity** with `requiredDuringScheduling` enforces hard placement — pods will not start if no matching node exists
+3. **ClusterIP DNS** works transparently across architectures — cross-arch pod-to-pod communication is seamless
+4. **Custom labels** (`workload-type`) give fine-grained control beyond just architecture
+5. **OCP S2I BuildConfig** with `nodeSelector: kubernetes.io/arch: amd64` builds app images natively on Intel nodes
+6. **IBM Fusion HCI** enables mixed-architecture OCP HCP clusters — run IBM Power workloads alongside x86_64 workloads in the same cluster
+7. **No docker.io** required for the PostgreSQL demo — all images from Red Hat or internal OCP registry
+8. **IBM Db2 on ppc64le** runs natively on IBM Power via `cp.icr.io/cp/db2/db2u` — requires IBM Entitlement Key
