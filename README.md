@@ -131,8 +131,8 @@ oc get nodes -o wide
 
 Edit `01-node-labels-taints.sh` and set:
 ```bash
-INTEL_NODE="intel-ru8.f38l015.fusion.tadn.ibm.com"
-POWER_NODE="power9-r7-ru35.f38l015.fusion.tadn.ibm.com"
+INTEL_NODE="<your-intel-node-hostname>"
+POWER_NODE="<your-power-node-hostname>"
 ```
 
 Run the labeling script:
@@ -231,9 +231,9 @@ oc get pods -n hetero-demo -o wide
 Expected output:
 ```
 NAME                                    READY  STATUS   NODE                                        ...
-hetero-pgcluster-pginstance-xxxx-0      4/4    Running  intel-ru8.f38l015.fusion.tadn.ibm.com       ...
-hetero-pgcluster-pgbouncer-xxxx         2/2    Running  intel-ru8.f38l015.fusion.tadn.ibm.com       ...
-flask-appserver-xxxx                    1/1    Running  power9-r7-ru35.f38l015.fusion.tadn.ibm.com  ...
+hetero-pgcluster-pginstance-xxxx-0      4/4    Running  <your-intel-node-hostname>   ...
+hetero-pgcluster-pgbouncer-xxxx         2/2    Running  <your-intel-node-hostname>   ...
+flask-appserver-xxxx                    1/1    Running  <your-power-node-hostname>   ...
 ```
 
 Confirm architectures:
@@ -303,7 +303,7 @@ Expected `/arch` response:
       "role": "Application Server + Web UI",
       "architecture": "ppc64le",
       "arch_label": "ppc64le (IBM Power)",
-      "node": "power9-r7-ru35.f38l015.fusion.tadn.ibm.com"
+      "node": "<your-power-node-hostname>"
     },
     "database": {
       "role": "Database Server (Crunchy PGO)",
