@@ -1,0 +1,42 @@
+---
+# ClusterIP Service for the Flask App Server
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-appserver-service
+  namespace: hetero-demo
+  labels:
+    app: flask-appserver
+    tier: appserver
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: flask-appserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# OpenShift Route — exposes the Flask app externally via the OCP ingress router
+# Access the app at: http://flask-appserver-hetero-demo.<cluster-apps-domain>
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: flask-appserver-route
+  namespace: hetero-demo
+  labels:
+    app: flask-appserver
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  to:
+    kind: Service
+    name: flask-appserver-service
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

@@ -1,0 +1,67 @@
+---
+# NetworkPolicy: Allow Flask app server to reach Crunchy Postgres primary pods on port 5432
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-appserver-to-postgres
+  namespace: hetero-demo
+  labels:
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  podSelector:
+    matchLabels:
+      postgres-operator.crunchydata.com/cluster: hetero-pgcluster
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: flask-appserver
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# NetworkPolicy: Allow all Crunchy PGO pods within the cluster to communicate freely
+# Required for:
+#   - pgBackRest backup jobs → Postgres instance (port 8432, pgBackRest replication)
+#   - pgBouncer → Postgres instance (port 5432)
+#   - repo-host → Postgres instance (port 8432)
+#   - Operator reconciliation traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pgo-internal
+  namespace: hetero-demo
+  labels:
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  podSelector:
+    matchLabels:
+      postgres-operator.crunchydata.com/cluster: hetero-pgcluster
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              postgres-operator.crunchydata.com/cluster: hetero-pgcluster
+---
+# NetworkPolicy: Allow external ingress traffic to Flask app server on port 8080
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-appserver
+  namespace: hetero-demo
+  labels:
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: flask-appserver
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080

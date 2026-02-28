@@ -1,0 +1,135 @@
+---
+# =============================================================================
+# PostgresCluster CR — Crunchy Postgres Operator (PGO v5)
+#
+# Replaces: 02-postgres-secret.yaml, 03-postgres-pvc.yaml,
+#           04-postgres-deployment.yaml, 05-postgres-service.yaml
+#
+# The operator manages its own images from registry.connect.redhat.com —
+# NO docker.io images are pulled.
+#
+# Placement: pinned to Intel (x86_64) node via nodeAffinity on all pods
+# (instances, pgbackrest, pgbouncer) using the topologySpreadConstraints
+# and the patroni/pgbackrest pod patch.
+#
+# The operator creates a Service named "<cluster>-primary" on port 5432.
+# The Flask app connects via: hetero-pgcluster-primary.hetero-demo.svc:5432
+# =============================================================================
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: hetero-pgcluster
+  namespace: hetero-demo
+  labels:
+    app: postgres
+    tier: database
+    arch: x86_64
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  # PostgreSQL major version
+  postgresVersion: 16
+
+  # -----------------------------------------------------------------------
+  # Instance set — the actual Postgres pods, pinned to Intel (x86_64) node
+  # -----------------------------------------------------------------------
+  instances:
+    - name: pginstance
+      replicas: 1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - database
+      dataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        # Uncomment and set if you have a specific StorageClass:
+        # storageClassName: ibm-spectrum-scale-sc
+
+  # -----------------------------------------------------------------------
+  # Backups — pgBackRest, also pinned to Intel node
+  # -----------------------------------------------------------------------
+  backups:
+    pgbackrest:
+      # Pin the repo-host (sidecar) pod to Intel node
+      repoHost:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/arch
+                      operator: In
+                      values:
+                        - amd64
+                    - key: workload-type
+                      operator: In
+                      values:
+                        - database
+      # Pin backup Job pods (stanza-create, backup, restore) to Intel node
+      jobs:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/arch
+                      operator: In
+                      values:
+                        - amd64
+                    - key: workload-type
+                      operator: In
+                      values:
+                        - database
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 10Gi
+
+  # -----------------------------------------------------------------------
+  # Users — creates the appuser with access to appdb
+  # The operator stores credentials in a Secret named:
+  #   hetero-pgcluster-pguser-appuser
+  # Keys: user, password, host, port, dbname, uri, pgpassword
+  # -----------------------------------------------------------------------
+  users:
+    - name: appuser
+      databases:
+        - appdb
+      options: "SUPERUSER"
+
+  # -----------------------------------------------------------------------
+  # Connection pooling via pgBouncer — also pinned to Intel node
+  # -----------------------------------------------------------------------
+  proxy:
+    pgBouncer:
+      replicas: 1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - database

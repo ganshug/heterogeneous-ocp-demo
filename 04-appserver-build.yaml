@@ -1,0 +1,68 @@
+---
+# =============================================================================
+# ImageStream — stores the built Flask app server image in the internal
+# OCP registry. No docker.io required.
+# =============================================================================
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: hetero-demo-app
+  namespace: hetero-demo
+  labels:
+    app: flask-appserver
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  lookupPolicy:
+    local: true
+---
+# =============================================================================
+# BuildConfig — S2I build of the Flask app server
+#
+# Base image: image-registry.openshift-image-registry.svc:5000/openshift/python:3.11-ubi9
+#   (Red Hat UBI9 Python 3.11 — already mirrored in the internal OCP registry)
+#   Supports ppc64le natively (multi-arch UBI image).
+#
+# Source: local binary build — the app/ directory is uploaded via `oc start-build`
+#
+# Output: pushed to the internal ImageStream hetero-demo-app:latest
+# =============================================================================
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: hetero-demo-app
+  namespace: hetero-demo
+  labels:
+    app: flask-appserver
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  # Build runs on the Power (ppc64le) node so the resulting image is ppc64le
+  nodeSelector:
+    kubernetes.io/arch: ppc64le
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Source
+    sourceStrategy:
+      # Use registry.redhat.io/ubi9/python-311 directly — multi-arch (amd64 + ppc64le)
+      # The build pod runs on the ppc64le node so the correct arch variant is pulled.
+      # registry.redhat.io is accessible from OCP nodes without docker.io credentials.
+      from:
+        kind: DockerImage
+        name: "registry.redhat.io/ubi9/python-311:latest"
+      env:
+        - name: PIP_NO_CACHE_DIR
+          value: "1"
+  output:
+    to:
+      kind: ImageStreamTag
+      name: "hetero-demo-app:latest"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2

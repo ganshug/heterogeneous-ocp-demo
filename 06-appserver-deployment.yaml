@@ -1,0 +1,166 @@
+---
+# =============================================================================
+# Flask App Server Deployment — pinned to Power (ppc64le) node
+#
+# Placement strategy:
+#   nodeAffinity: requiredDuringScheduling — MUST run on ppc64le (IBM Power)
+#                 workload-type=appserver  (set by 01-node-labels-taints.sh)
+#
+# Image: built by OCP S2I BuildConfig (04-appserver-build.yaml)
+#        stored in internal ImageStream: hetero-demo-app:latest
+#        NO docker.io images required.
+#
+# Database: Crunchy Postgres Operator cluster (03-postgres-cluster.yaml)
+#   Primary service: hetero-pgcluster-primary.hetero-demo.svc.cluster.local:5432
+#   Credentials:     Secret hetero-pgcluster-pguser-appuser (created by operator)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-appserver
+  namespace: hetero-demo
+  labels:
+    app: flask-appserver
+    tier: appserver
+    arch: ppc64le
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-appserver
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: flask-appserver
+        tier: appserver
+        arch: ppc64le
+    spec:
+      # -----------------------------------------------------------------------
+      # Hard node affinity: MUST run on ppc64le (IBM Power) node
+      # -----------------------------------------------------------------------
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - appserver
+      # -----------------------------------------------------------------------
+      # Tolerations — add these if you enabled taints in 01-node-labels-taints.sh
+      # -----------------------------------------------------------------------
+      # tolerations:
+      #   - key: dedicated
+      #     operator: Equal
+      #     value: appserver
+      #     effect: NoSchedule
+      # -----------------------------------------------------------------------
+      initContainers:
+        # Wait for the Crunchy Postgres primary service to be ready.
+        # Uses the OCP internal cli image (registry.redhat.io/openshift4/ose-cli)
+        # — already mirrored in the internal OCP registry. No docker.io needed.
+        - name: wait-for-postgres
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command:
+            - bash
+            - -c
+            - |
+              echo "Waiting for hetero-pgcluster-primary:5432 to be ready..."
+              until bash -c "echo > /dev/tcp/hetero-pgcluster-primary/5432" 2>/dev/null; do
+                echo "Postgres primary not ready yet, sleeping 5s..."
+                sleep 5
+              done
+              echo "Postgres primary is ready!"
+      containers:
+        - name: flask-appserver
+          # Image built by OCP S2I BuildConfig (04-appserver-build.yaml)
+          # Stored in the internal OCP ImageStream — no docker.io pull needed.
+          image: image-registry.openshift-image-registry.svc:5000/hetero-demo/hetero-demo-app:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            # DATABASE_URL constructed from the Crunchy operator's user secret.
+            # The operator creates Secret: hetero-pgcluster-pguser-appuser
+            # with keys: user, password, host, port, dbname, uri
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: user
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: port
+            - name: PG_DBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: dbname
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hetero-pgcluster-pguser-appuser
+                  key: uri
+            # Expose node and pod name inside the app for the /arch endpoint
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: default

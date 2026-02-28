@@ -1,0 +1,35 @@
+---
+# =============================================================================
+# Crunchy Postgres Operator — OperatorGroup + Subscription
+#
+# Installs the PGO (Crunchy Data PostgreSQL Operator) v5 from the
+# Red Hat Certified Operators catalog into the hetero-demo namespace.
+# No docker.io images required — all images pulled from registry.connect.redhat.com
+# =============================================================================
+
+# OperatorGroup: scope the operator to the hetero-demo namespace
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: hetero-demo-og
+  namespace: hetero-demo
+  labels:
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  targetNamespaces:
+    - hetero-demo
+---
+# Subscription: install Crunchy Postgres Operator v5 from Certified Operators
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: crunchy-postgres-operator
+  namespace: hetero-demo
+  labels:
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  channel: v5
+  name: crunchy-postgres-operator
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

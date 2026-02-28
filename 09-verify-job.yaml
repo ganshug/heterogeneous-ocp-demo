@@ -1,0 +1,72 @@
+---
+# =============================================================================
+# Verification Job — confirms cross-arch connectivity (Power app → Intel DB)
+#
+# Image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+#   (OCP internal cli image — includes curl, bash, oc — NO docker.io needed)
+#
+# This job queries the /arch endpoint of the Flask app server and prints
+# the architecture details of both the app server (Power) and DB (Intel).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hetero-verify
+  namespace: hetero-demo
+  labels:
+    app: hetero-verify
+    app.kubernetes.io/part-of: hetero-hcp-demo
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: hetero-verify
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: verify
+          # OCP internal cli image — has curl, bash, oc. No docker.io pull needed.
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command:
+            - bash
+            - -c
+            - |
+              echo "=============================================="
+              echo " Heterogeneous HCP Demo — Verification"
+              echo "=============================================="
+              echo ""
+              echo "--- Checking App Server health ---"
+              curl -sf http://flask-appserver-service:8080/health && echo ""
+
+              echo ""
+              echo "--- Architecture Info (cross-arch connectivity) ---"
+              curl -sf http://flask-appserver-service:8080/arch | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); \
+                  print('App Server arch :', d['heterogeneous_demo']['app_server']['architecture']); \
+                  print('App Server node :', d['heterogeneous_demo']['app_server']['node']); \
+                  print('DB arch         :', d['heterogeneous_demo']['database']['architecture']); \
+                  print('DB connected    :', d['heterogeneous_demo']['database']['connected']); \
+                  print('PG version      :', d['heterogeneous_demo']['database']['postgres_version'][:50])"
+
+              echo ""
+              echo "--- Creating a test item via Power->Intel DB write ---"
+              curl -sf -X POST http://flask-appserver-service:8080/items \
+                -H 'Content-Type: application/json' \
+                -d '{"name":"hetero-test-item","description":"Written from Power node to Intel PostgreSQL (Crunchy PGO)"}' && echo ""
+
+              echo ""
+              echo "--- Reading items back ---"
+              curl -sf http://flask-appserver-service:8080/items && echo ""
+
+              echo ""
+              echo "=============================================="
+              echo " Verification COMPLETE"
+              echo "=============================================="
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

@@ -1,0 +1,16 @@
+# Old/superseded files
+_old/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Python (in app/ subdirectory)
+app/__pycache__/
+app/*.pyc
+app/.venv/
+app/*.egg-info/
