@@ -28,23 +28,23 @@ fi
 echo "==> Labeling Intel (x86_64) node: $INTEL_NODE"
 oc label node "$INTEL_NODE" \
   node-role.kubernetes.io/intel-worker="" \
-  workload-type=database \
+  workload-type=appserver \
   --overwrite
 
 echo "==> Labeling Power (ppc64le) node: $POWER_NODE"
 oc label node "$POWER_NODE" \
   node-role.kubernetes.io/power-worker="" \
-  workload-type=appserver \
+  workload-type=database \
   --overwrite
 
 # Optional: taint nodes so ONLY explicitly tolerating pods land on them.
 # Uncomment the lines below if you want strict placement.
 #
-# echo "==> Tainting Intel node (database-only)"
-# oc adm taint node "$INTEL_NODE" dedicated=database:NoSchedule --overwrite
+# echo "==> Tainting Intel node (appserver-only)"
+# oc adm taint node "$INTEL_NODE" dedicated=appserver:NoSchedule --overwrite
 #
-# echo "==> Tainting Power node (appserver-only)"
-# oc adm taint node "$POWER_NODE" dedicated=appserver:NoSchedule --overwrite
+# echo "==> Tainting Power node (database-only)"
+# oc adm taint node "$POWER_NODE" dedicated=database:NoSchedule --overwrite
 
 echo ""
 echo "==> Node labels applied. Verify with:"

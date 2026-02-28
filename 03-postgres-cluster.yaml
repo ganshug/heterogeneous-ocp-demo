@@ -8,9 +8,8 @@
 # The operator manages its own images from registry.connect.redhat.com —
 # NO docker.io images are pulled.
 #
-# Placement: pinned to Intel (x86_64) node via nodeAffinity on all pods
-# (instances, pgbackrest, pgbouncer) using the topologySpreadConstraints
-# and the patroni/pgbackrest pod patch.
+# Placement: pinned to Power (ppc64le) node via nodeAffinity on all pods
+# (instances, pgbackrest, pgbouncer)
 #
 # The operator creates a Service named "<cluster>-primary" on port 5432.
 # The Flask app connects via: hetero-pgcluster-primary.hetero-demo.svc:5432
@@ -23,14 +22,14 @@ metadata:
   labels:
     app: postgres
     tier: database
-    arch: x86_64
+    arch: ppc64le
     app.kubernetes.io/part-of: hetero-hcp-demo
 spec:
   # PostgreSQL major version
   postgresVersion: 16
 
   # -----------------------------------------------------------------------
-  # Instance set — the actual Postgres pods, pinned to Intel (x86_64) node
+  # Instance set — the actual Postgres pods, pinned to Power (ppc64le) node
   # -----------------------------------------------------------------------
   instances:
     - name: pginstance
@@ -43,7 +42,7 @@ spec:
                   - key: kubernetes.io/arch
                     operator: In
                     values:
-                      - amd64
+                      - ppc64le
                   - key: workload-type
                     operator: In
                     values:
@@ -58,11 +57,11 @@ spec:
         # storageClassName: ibm-spectrum-scale-sc
 
   # -----------------------------------------------------------------------
-  # Backups — pgBackRest, also pinned to Intel node
+  # Backups — pgBackRest, also pinned to Power node
   # -----------------------------------------------------------------------
   backups:
     pgbackrest:
-      # Pin the repo-host (sidecar) pod to Intel node
+      # Pin the repo-host (sidecar) pod to Power node
       repoHost:
         affinity:
           nodeAffinity:
@@ -72,12 +71,12 @@ spec:
                     - key: kubernetes.io/arch
                       operator: In
                       values:
-                        - amd64
+                        - ppc64le
                     - key: workload-type
                       operator: In
                       values:
                         - database
-      # Pin backup Job pods (stanza-create, backup, restore) to Intel node
+      # Pin backup Job pods (stanza-create, backup, restore) to Power node
       jobs:
         affinity:
           nodeAffinity:
@@ -87,7 +86,7 @@ spec:
                     - key: kubernetes.io/arch
                       operator: In
                       values:
-                        - amd64
+                        - ppc64le
                     - key: workload-type
                       operator: In
                       values:
@@ -115,7 +114,7 @@ spec:
       options: "SUPERUSER"
 
   # -----------------------------------------------------------------------
-  # Connection pooling via pgBouncer — also pinned to Intel node
+  # Connection pooling via pgBouncer — also pinned to Power node
   # -----------------------------------------------------------------------
   proxy:
     pgBouncer:
@@ -128,7 +127,7 @@ spec:
                   - key: kubernetes.io/arch
                     operator: In
                     values:
-                      - amd64
+                      - ppc64le
                   - key: workload-type
                     operator: In
                     values:
