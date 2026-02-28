@@ -1,6 +1,6 @@
 """
-Flask Application Server — runs on IBM Power (ppc64le)
-Connects to PostgreSQL managed by Crunchy Postgres Operator running on Intel (x86_64) node.
+Flask Application Server — runs on Intel (x86_64)
+Connects to PostgreSQL running directly on IBM Power (ppc64le) node.
 
 Provides:
   - Browser UI  : GET /        — full HTML web interface for CRUD operations
@@ -21,8 +21,9 @@ app = Flask(__name__)
 # ---------------------------------------------------------------------------
 # Database URL construction
 # ---------------------------------------------------------------------------
-# Primary: use the full URI from the Crunchy operator secret (key: uri)
-# Fallback: build from individual PG_* env vars (key: user/password/host/port/dbname)
+# Primary: use the full URI from the secret (key: uri)
+# Fallback: build from individual PG_* env vars
+# Direct postgres (rhel9/postgresql-16) does not use TLS — no sslmode needed.
 # ---------------------------------------------------------------------------
 
 def _build_database_url():
@@ -30,29 +31,15 @@ def _build_database_url():
     if not uri:
         user     = os.environ.get("PG_USER",     "appuser")
         password = os.environ.get("PG_PASSWORD",  "changeme")
-        host     = os.environ.get("PG_HOST",      "hetero-pgcluster-primary")
+        host     = os.environ.get("PG_HOST",      "hetero-postgres-service")
         port     = os.environ.get("PG_PORT",      "5432")
         dbname   = os.environ.get("PG_DBNAME",    "appdb")
         uri = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
 
-    # Normalise sslmode: strip any existing sslmode param, then append sslmode=require
-    uri = re.sub(r'([?&])sslmode=[^&]*(&?)', _remove_sslmode_param, uri)
-    sep = '&' if '?' in uri else '?'
-    uri = uri.rstrip('?&') + sep + 'sslmode=require'
+    # Strip any sslmode param — direct postgres deployment does not use TLS
+    uri = re.sub(r'[?&]sslmode=[^&]*', '', uri)
+    uri = uri.rstrip('?&')
     return uri
-
-
-def _remove_sslmode_param(m):
-    """Regex replacement helper: remove sslmode=... and fix leftover separators."""
-    prefix = m.group(1)   # '?' or '&'
-    suffix = m.group(2)   # trailing '&' or ''
-    if prefix == '?' and suffix == '&':
-        return '?'
-    if prefix == '?' and suffix == '':
-        return ''
-    if prefix == '&' and suffix == '&':
-        return '&'
-    return ''
 
 
 DATABASE_URL = _build_database_url()
@@ -185,15 +172,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </header>
 
   <div class="arch-banner">
-    <div class="arch-card power">
+    <div class="arch-card intel">
       <h3>App Server (This Pod)</h3>
-      <div class="value">ppc64le &mdash; IBM Power</div>
+      <div class="value">x86_64 &mdash; Intel</div>
       <div class="sub">{app_node}</div>
     </div>
-    <div class="arch-card intel">
-      <h3>Database (Crunchy PGO)</h3>
-      <div class="value">x86_64 &mdash; Intel</div>
-      <div class="sub">hetero-pgcluster-primary &nbsp;&bull;&nbsp; PostgreSQL 16</div>
+    <div class="arch-card power">
+      <h3>Database (IBM Power)</h3>
+      <div class="value">ppc64le &mdash; IBM Power</div>
+      <div class="sub">hetero-postgres-service &nbsp;&bull;&nbsp; PostgreSQL 16</div>
     </div>
     <div class="arch-card" style="border-color:#9c27b0;">
       <h3>DB Status</h3>
@@ -216,7 +203,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </div>
           <div class="form-group" style="flex:2;">
             <label for="description">Description</label>
-            <input type="text" id="description" name="description" placeholder="Written from IBM Power node to Intel PostgreSQL via Crunchy PGO" maxlength="1000">
+            <input type="text" id="description" name="description" placeholder="Written from Intel (x86_64) node to IBM Power (ppc64le) PostgreSQL" maxlength="1000">
           </div>
         </div>
         <br>
@@ -239,14 +226,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <tr><th>Component</th><th>Architecture</th><th>Node</th><th>Role</th></tr>
         <tr>
           <td>Flask App Server</td>
-          <td><span class="badge badge-power">ppc64le</span></td>
+          <td><span class="badge badge-intel">x86_64</span></td>
           <td style="font-size:0.8rem;">{app_node}</td>
           <td>Application Logic + Web UI</td>
         </tr>
         <tr>
-          <td>PostgreSQL (Crunchy PGO)</td>
-          <td><span class="badge badge-intel">x86_64</span></td>
-          <td style="font-size:0.8rem;">hetero-pgcluster-primary</td>
+          <td>PostgreSQL (rhel9/postgresql-16)</td>
+          <td><span class="badge badge-power">ppc64le</span></td>
+          <td style="font-size:0.8rem;">hetero-postgres-service</td>
           <td>Data Persistence</td>
         </tr>
       </table>
@@ -254,7 +241,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <footer>
-    Heterogeneous HCP Demo &mdash; IBM Power (ppc64le) + Intel (x86_64) on OpenShift Hosted Control Plane
+    Heterogeneous HCP Demo &mdash; Intel (x86_64) App + IBM Power (ppc64le) DB on OpenShift Hosted Control Plane
   </footer>
 
   <script>
@@ -520,12 +507,12 @@ def arch_info():
                 "platform": platform.platform(),
                 "node": os.environ.get("NODE_NAME", "unknown"),
                 "pod": os.environ.get("POD_NAME", "unknown"),
-                "arch_label": "ppc64le (IBM Power)",
+                "arch_label": "x86_64 (Intel)",
             },
             "database": {
-                "role": "Database Server (Crunchy PGO)",
-                "architecture": "x86_64 (Intel)",
-                "host": "hetero-pgcluster-primary.hetero-demo.svc.cluster.local",
+                "role": "Database Server (rhel9/postgresql-16)",
+                "architecture": "ppc64le (IBM Power)",
+                "host": "hetero-postgres-service.hetero-demo.svc.cluster.local",
                 "port": 5432,
                 "connected": db_ok,
                 "postgres_version": pg_version,

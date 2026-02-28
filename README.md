@@ -1,18 +1,17 @@
 # IBM Power and IBM Fusion HCI Demo — Heterogeneous OCP Hosted Control Plane
 
-This solution demonstrates a **true heterogeneous workload deployment** on an OpenShift Hosted Control Plane (HCP) cluster with mixed-architecture worker nodes — IBM Power (ppc64le) and Intel (x86_64) — running on **IBM Fusion HCI**.
+This solution demonstrates a **true heterogeneous workload deployment** on an OpenShift Hosted Control Plane (HCP) cluster with mixed-architecture worker nodes — Intel (x86_64) and IBM Power (ppc64le) — running on **IBM Fusion HCI**.
 
 **No docker.io images are used.** All images come from:
-- Red Hat Certified Operators catalog (`registry.connect.redhat.com`)
+- Red Hat registry (`registry.redhat.io`)
 - Internal OCP image registry (`image-registry.openshift-image-registry.svc:5000`)
-- Red Hat registry (`registry.access.redhat.com`, `registry.redhat.io`)
 
 | Component | Architecture | Node Type | Workload | Image Source |
 |-----------|-------------|-----------|----------|--------------|
-| **PostgreSQL (Crunchy PGO)** | `x86_64` | Intel | Data persistence — managed by operator | `registry.connect.redhat.com` (Certified) |
-| **Flask App Server** | `ppc64le` | IBM Power | Application logic + REST API + Web UI | OCP internal registry (S2I build) |
+| **Flask App Server** | `x86_64` | Intel | Application logic + REST API + Web UI | OCP internal registry (S2I build on amd64) |
+| **PostgreSQL 16** | `ppc64le` | IBM Power | Data persistence | `registry.redhat.io/rhel9/postgresql-16` |
 
-The Flask app server (running on Power) connects **cross-architecture** to PostgreSQL (running on Intel) via Kubernetes ClusterIP DNS — proving seamless heterogeneous workload communication on IBM Fusion HCI.
+The Flask app server (running on Intel) connects **cross-architecture** to PostgreSQL (running on IBM Power) via Kubernetes ClusterIP DNS — proving seamless heterogeneous workload communication on IBM Fusion HCI.
 
 ---
 
@@ -23,25 +22,25 @@ The Flask app server (running on Power) connects **cross-architecture** to Postg
 │               OpenShift Hosted Control Plane (HCP)                   │
 │                     Namespace: hetero-demo                            │
 │                                                                       │
-│  ┌──────────────────────────┐   ┌──────────────────────────────┐    │
-│  │   IBM Power Worker Node  │   │   Intel Worker Node          │    │
-│  │   (ppc64le)              │   │   (x86_64 / amd64)           │    │
-│  │                          │   │                              │    │
-│  │  ┌────────────────────┐  │   │  ┌──────────────────────┐   │    │
-│  │  │  Flask App Server  │  │   │  │  Crunchy PGO         │   │    │
-│  │  │  Python/Gunicorn   │  │   │  │  PostgresCluster      │   │    │
-│  │  │  Port: 8080        │──┼───┼─▶│  Port: 5432          │   │    │
-│  │  │  (S2I / UBI9)      │  │   │  │  (Certified Operator) │   │    │
-│  │  └────────────────────┘  │   │  └──────────────────────┘   │    │
-│  │         │                │   │                              │    │
-│  │  flask-appserver-service  │   │  hetero-pgcluster-primary    │    │
-│  └──────────────────────────┘   └──────────────────────────────┘    │
+│  ┌──────────────────────────────┐   ┌──────────────────────────┐    │
+│  │   Intel Worker Node          │   │   IBM Power Worker Node  │    │
+│  │   (x86_64 / amd64)           │   │   (ppc64le)              │    │
+│  │                              │   │                          │    │
+│  │  ┌──────────────────────┐   │   │  ┌────────────────────┐  │    │
+│  │  │  Flask App Server    │   │   │  │  PostgreSQL 16     │  │    │
+│  │  │  Python/Gunicorn     │───┼───┼─▶│  rhel9/postgresql  │  │    │
+│  │  │  Port: 8080          │   │   │  │  Port: 5432        │  │    │
+│  │  │  (S2I / UBI9 amd64)  │   │   │  │  (multi-arch)      │  │    │
+│  │  └──────────────────────┘   │   │  └────────────────────┘  │    │
+│  │         │                   │   │                          │    │
+│  │  flask-appserver-service     │   │  hetero-postgres-service  │    │
+│  └──────────────────────────────┘   └──────────────────────────┘    │
 │         │                                                             │
 │  OCP Route (TLS edge)                                                │
 └─────────┼─────────────────────────────────────────────────────────── ┘
           │
     External Users
-    https://flask-appserver-hetero-demo.<apps-domain>
+    https://flask-appserver-route-hetero-demo.<apps-domain>
 ```
 
 ---
@@ -50,8 +49,7 @@ The Flask app server (running on Power) connects **cross-architecture** to Postg
 
 | Component | Image | Source |
 |-----------|-------|--------|
-| Crunchy PGO Operator | `registry.connect.redhat.com/crunchydata/postgres-operator` | Red Hat Certified Operators |
-| Crunchy PGO PostgreSQL | `registry.connect.redhat.com/crunchydata/crunchy-postgres` | Red Hat Certified Operators |
+| PostgreSQL 16 | `registry.redhat.io/rhel9/postgresql-16:latest` | Red Hat registry (multi-arch: amd64 + ppc64le) |
 | Flask App Server | `image-registry.openshift-image-registry.svc:5000/hetero-demo/hetero-demo-app:latest` | OCP internal registry (S2I build) |
 | S2I base image | `registry.redhat.io/ubi9/python-311:latest` | Red Hat registry (multi-arch) |
 | Init container | `image-registry.openshift-image-registry.svc:5000/openshift/cli:latest` | OCP internal registry |
@@ -66,25 +64,18 @@ hetero-hcp-demo/
 ├── README.md                        # This file
 ├── deploy.sh                        # One-shot deployment script
 ├── 00-namespace.yaml                # Namespace: hetero-demo
-├── 01-node-labels-taints.sh         # Label/taint Intel and Power nodes
-├── 02-postgres-operator.yaml        # Crunchy PGO OperatorGroup + Subscription
-├── 03-postgres-cluster.yaml         # PostgresCluster CR → Intel (x86_64) node
-├── 04-appserver-build.yaml          # OCP S2I BuildConfig + ImageStream
-├── 06-appserver-deployment.yaml     # Flask App Server → Power (ppc64le) node
+├── 01-node-labels-taints.sh         # Label Intel (appserver) and Power (database) nodes
+├── 03-postgres-direct.yaml          # PostgreSQL 16 Deployment → IBM Power (ppc64le) node
+├── 04-appserver-build.yaml          # OCP S2I BuildConfig + ImageStream (amd64 build)
+├── 06-appserver-deployment.yaml     # Flask App Server → Intel (x86_64) node
 ├── 07-appserver-service-route.yaml  # Service + OCP Route for Flask app
 ├── 08-network-policy.yaml           # NetworkPolicy for cross-arch traffic
 ├── 09-verify-job.yaml               # Verification job (OCP cli image)
 └── app/
-    ├── app.py                       # Flask application source
-    ├── wsgi.py                      # WSGI entry point for gunicorn
+    ├── app.py                       # Flask application source + browser UI
     ├── requirements.txt             # Python dependencies (pinned)
-    ├── Dockerfile                   # Dockerfile using registry.access.redhat.com/ubi9/python-311
-    └── .gitignore                   # Python artifact exclusions
+    └── Dockerfile                   # Dockerfile using registry.redhat.io/ubi9/python-311
 ```
-
-> **Note:** Files `02-postgres-secret.yaml`, `03-postgres-pvc.yaml`, `04-postgres-deployment.yaml`,
-> and `05-postgres-service.yaml` are superseded by the Crunchy PGO operator approach.
-> The operator manages secrets, PVCs, deployments, and services automatically.
 
 ---
 
@@ -94,9 +85,8 @@ hetero-hcp-demo/
   - At least **1 Intel (x86_64)** worker node
   - At least **1 IBM Power (ppc64le)** worker node
 - `oc` CLI logged in to the HCP guest cluster
-- Access to the Red Hat Certified Operators catalog (`certified-operators` CatalogSource)
+- Access to `registry.redhat.io` from cluster nodes (standard OCP pull secret)
 - Internal OCP image registry accessible (default in OCP clusters)
-- `git` CLI (for cloning this repo)
 
 ---
 
@@ -105,7 +95,7 @@ hetero-hcp-demo/
 ```bash
 # Clone the repo
 git clone https://github.com/ganshug/heterogeneous-ocp-demo.git
-cd heterogeneous-ocp-demo
+cd heterogeneous-ocp-demo/hetero-hcp-demo
 
 # Log in to your OCP HCP cluster
 oc login <api-url> --token=<token>
@@ -140,6 +130,10 @@ Run the labeling script:
 bash 01-node-labels-taints.sh
 ```
 
+This applies:
+- Intel node → `workload-type=appserver`
+- Power node → `workload-type=database`
+
 Verify labels:
 ```bash
 oc get nodes --show-labels | grep workload-type
@@ -147,44 +141,35 @@ oc get nodes --show-labels | grep workload-type
 
 ---
 
-### Step 2 — Create namespace and install Crunchy Postgres Operator
+### Step 2 — Create namespace
 
 ```bash
-# Create namespace
 oc apply -f 00-namespace.yaml
-
-# Install the operator (OperatorGroup + Subscription from Red Hat Certified catalog)
-oc apply -f 02-postgres-operator.yaml
-
-# Wait for the operator to be ready (STATUS = Succeeded)
-oc get csv -n hetero-demo -w
 ```
 
 ---
 
-### Step 3 — Deploy PostgresCluster on Intel node
+### Step 3 — Deploy PostgreSQL 16 on IBM Power node
 
 ```bash
-oc apply -f 03-postgres-cluster.yaml
+oc apply -f 03-postgres-direct.yaml
 
-# Watch the cluster come up
-oc get postgrescluster -n hetero-demo -w
-
-# Check pods (should land on Intel node)
-oc get pods -n hetero-demo -l postgres-operator.crunchydata.com/cluster=hetero-pgcluster -o wide
+# Watch the pod come up on the Power node
+oc get pods -n hetero-demo -l app=postgres -o wide -w
 ```
 
-The operator automatically creates:
-- **Secret** `hetero-pgcluster-pguser-appuser` — DB credentials (user, password, host, port, dbname, uri)
-- **Service** `hetero-pgcluster-primary` — ClusterIP on port 5432
-- **PVC** — 10Gi data volume on Intel node
-- **PVC** — 10Gi pgBackRest backup volume on Intel node
+This creates:
+- **Secret** `hetero-postgres-secret` — DB credentials (user, password, dbname, uri)
+- **PVC** `hetero-postgres-pvc` — 10Gi data volume on Power node
+- **Deployment** `hetero-postgres` — pinned to ppc64le via nodeAffinity
+- **Service** `hetero-postgres-service` — ClusterIP on port 5432
 
 ---
 
-### Step 4 — Build the Flask App Server (S2I on Power node)
+### Step 4 — Build the Flask App Server (S2I on Intel node)
 
-The build runs **on the Power node** using the Red Hat UBI9 Python 3.11 image from `registry.redhat.io`.
+The build runs **on the Intel (amd64) node** using the Red Hat UBI9 Python 3.11 image.
+The resulting image is **amd64** and stored in the internal OCP registry.
 No docker.io credentials needed.
 
 ```bash
@@ -192,7 +177,7 @@ No docker.io credentials needed.
 oc apply -f 04-appserver-build.yaml
 
 # Start the S2I build (uploads app/ directory to the cluster)
-# The build pod is pinned to the ppc64le node via nodeSelector
+# The build pod is pinned to the amd64 (Intel) node via nodeSelector
 oc start-build hetero-demo-app --from-dir=./app/ --follow -n hetero-demo
 ```
 
@@ -208,7 +193,7 @@ oc rollout status deployment/flask-appserver -n hetero-demo
 
 ---
 
-### Step 5 — Deploy Flask App Server on Power node
+### Step 5 — Deploy Flask App Server on Intel node
 
 ```bash
 oc apply -f 06-appserver-deployment.yaml
@@ -230,23 +215,20 @@ oc get pods -n hetero-demo -o wide
 
 Expected output:
 ```
-NAME                                    READY  STATUS   NODE                                        ...
-hetero-pgcluster-pginstance-xxxx-0      4/4    Running  <your-intel-node-hostname>   ...
-hetero-pgcluster-pgbouncer-xxxx         2/2    Running  <your-intel-node-hostname>   ...
-flask-appserver-xxxx                    1/1    Running  <your-power-node-hostname>   ...
+NAME                              READY  STATUS   NODE                                        ...
+hetero-postgres-xxxx              1/1    Running  <your-power-node-hostname>   ...
+flask-appserver-xxxx              1/1    Running  <your-intel-node-hostname>   ...
 ```
 
 Confirm architectures:
 ```bash
-# PostgreSQL pod — should show x86_64
-oc exec -n hetero-demo \
-  $(oc get pod -n hetero-demo -l postgres-operator.crunchydata.com/cluster=hetero-pgcluster -o name | head -1) \
-  -- uname -m
-# Expected: x86_64
-
-# Flask app server pod — should show ppc64le
-oc exec -n hetero-demo deploy/flask-appserver -- uname -m
+# PostgreSQL pod — should show ppc64le
+oc exec -n hetero-demo deploy/hetero-postgres -- uname -m
 # Expected: ppc64le
+
+# Flask app server pod — should show x86_64
+oc exec -n hetero-demo deploy/flask-appserver -- uname -m
+# Expected: x86_64
 ```
 
 ---
@@ -272,13 +254,13 @@ curl -sk https://$ROUTE/health
 # Readiness check (includes DB connectivity)
 curl -sk https://$ROUTE/ready
 
-# Show architecture info (Power app → Intel DB via Crunchy PGO)
+# Show architecture info (Intel app → Power DB)
 curl -sk https://$ROUTE/arch | python3 -m json.tool
 
-# Create an inventory item (written from Power node to Intel PostgreSQL)
+# Create an inventory item (written from Intel node to IBM Power PostgreSQL)
 curl -sk -X POST https://$ROUTE/items \
   -H 'Content-Type: application/json' \
-  -d '{"name":"fusion-hci-item","description":"Cross-arch write: IBM Power → Intel PostgreSQL (Crunchy PGO)"}'
+  -d '{"name":"fusion-hci-item","description":"Cross-arch write: Intel (x86_64) → IBM Power (ppc64le) PostgreSQL"}'
 
 # List all inventory items
 curl -sk https://$ROUTE/items | python3 -m json.tool
@@ -301,16 +283,16 @@ Expected `/arch` response:
   "heterogeneous_demo": {
     "app_server": {
       "role": "Application Server + Web UI",
-      "architecture": "ppc64le",
-      "arch_label": "ppc64le (IBM Power)",
-      "node": "<your-power-node-hostname>"
+      "architecture": "x86_64",
+      "arch_label": "x86_64 (Intel)",
+      "node": "<your-intel-node-hostname>"
     },
     "database": {
-      "role": "Database Server (Crunchy PGO)",
-      "architecture": "x86_64 (Intel)",
-      "host": "hetero-pgcluster-primary.hetero-demo.svc.cluster.local",
+      "role": "Database Server (rhel9/postgresql-16)",
+      "architecture": "ppc64le (IBM Power)",
+      "host": "hetero-postgres-service.hetero-demo.svc.cluster.local",
       "connected": true,
-      "postgres_version": "PostgreSQL 16.x ..."
+      "postgres_version": "PostgreSQL 16.x on powerpc64le-redhat-linux-gnu ..."
     }
   }
 }
@@ -335,62 +317,24 @@ pip install -r requirements.txt
 # Set environment variables
 export DATABASE_URL="postgresql://appuser:changeme@localhost:5432/appdb"
 
-# Run with gunicorn
-gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 60 wsgi:application
-
-# Or run with Flask dev server
+# Run with Flask dev server
 python app.py
-```
-
----
-
-## Build the Container Image Locally (podman/docker)
-
-```bash
-cd app/
-
-# Build for ppc64le (IBM Power)
-podman build \
-  --platform linux/ppc64le \
-  -t hetero-demo-app:latest \
-  .
-
-# Build for x86_64 (Intel) — for local testing
-podman build \
-  --platform linux/amd64 \
-  -t hetero-demo-app:latest \
-  .
-
-# Push to OCP internal registry (when logged in)
-REGISTRY=$(oc registry info)
-podman build \
-  --platform linux/ppc64le \
-  -t ${REGISTRY}/hetero-demo/hetero-demo-app:latest \
-  --push .
 ```
 
 ---
 
 ## How Workload Placement Works
 
+### Node Labels (set by `01-node-labels-taints.sh`)
+
+| Node | Architecture | `workload-type` label | Workload |
+|------|-------------|----------------------|----------|
+| Intel worker | `x86_64` / `amd64` | `appserver` | Flask App Server |
+| Power worker | `ppc64le` | `database` | PostgreSQL 16 |
+
 ### Node Affinity (Hard Placement)
 
-**PostgresCluster instances → Intel node:**
-```yaml
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/arch
-              operator: In
-              values: [amd64]
-            - key: workload-type
-              operator: In
-              values: [database]
-```
-
-**Flask App Server → Power node:**
+**PostgreSQL → IBM Power node:**
 ```yaml
 affinity:
   nodeAffinity:
@@ -402,28 +346,28 @@ affinity:
               values: [ppc64le]
             - key: workload-type
               operator: In
+              values: [database]
+```
+
+**Flask App Server → Intel node:**
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values: [amd64]
+            - key: workload-type
+              operator: In
               values: [appserver]
 ```
 
-**S2I Build → Power node:**
+**S2I Build → Intel node (produces amd64 image):**
 ```yaml
 nodeSelector:
-  kubernetes.io/arch: ppc64le
-```
-
-**pgBackRest backup jobs → Intel node:**
-```yaml
-backups:
-  pgbackrest:
-    jobs:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/arch
-                    operator: In
-                    values: [amd64]
+  kubernetes.io/arch: amd64
 ```
 
 ---
@@ -435,7 +379,7 @@ backups:
 | GET | `/` | Browser UI — inventory management |
 | GET | `/health` | Liveness probe |
 | GET | `/ready` | Readiness probe (checks DB) |
-| GET | `/arch` | **Cross-arch info** — shows Power app + Intel DB details |
+| GET | `/arch` | **Cross-arch info** — shows Intel app + Power DB details |
 | GET | `/items` | List all inventory items from PostgreSQL |
 | POST | `/items` | Create item `{"name":"...", "description":"..."}` |
 | GET | `/items/<id>` | Get a single item by ID |
@@ -455,11 +399,10 @@ oc delete namespace hetero-demo
 ## Key Takeaways
 
 1. **No docker.io credentials needed** — all images from Red Hat registries or internal OCP registry
-2. **Crunchy Postgres Operator** (Red Hat Certified) manages the full PostgreSQL lifecycle — HA, backups, users, TLS
-3. **OCP S2I BuildConfig** builds the ppc64le Flask image natively on the Power node using the internal Python UBI9 image
+2. **`registry.redhat.io/rhel9/postgresql-16`** is a multi-arch image — runs natively on both amd64 and ppc64le
+3. **OCP S2I BuildConfig** with `nodeSelector: kubernetes.io/arch: amd64` builds the Flask image natively on the Intel node — the resulting image is amd64
 4. **`kubernetes.io/arch`** label is auto-applied by OCP — use it for architecture-based scheduling
 5. **Node affinity** with `requiredDuringScheduling` enforces hard placement — pods will not start if no matching node exists
-6. **ClusterIP DNS** works transparently across architectures — `hetero-pgcluster-primary.hetero-demo.svc.cluster.local` resolves correctly from the Power node
+6. **ClusterIP DNS** works transparently across architectures — `hetero-postgres-service.hetero-demo.svc.cluster.local` resolves correctly from the Intel node
 7. **Custom labels** (`workload-type`) give fine-grained control beyond just architecture
-8. **pgBackRest backup jobs** must also be pinned to the correct architecture node — use `backups.pgbackrest.jobs.affinity` in the PostgresCluster CR
-9. **wsgi.py** is the gunicorn entry point — the OCP S2I Python builder auto-detects it
+8. **Cross-arch verified**: `PostgreSQL 16.x on powerpc64le-redhat-linux-gnu` connected from Intel (x86_64) app server
